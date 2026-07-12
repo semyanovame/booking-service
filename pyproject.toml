@@ -1,0 +1,29 @@
+[project]
+name = "booking-service"
+version = "0.1.0"
+description = "Сервис бронирования переговорных комнат"
+authors = [
+    {name = "Your Name",email = "email@example.com"}
+]
+requires-python = "^3.11"
+dependencies = [
+    "fastapi (>=0.139.0,<0.140.0)",
+    "uvicorn (>=0.51.0,<0.52.0)",
+    "sqlalchemy (>=2.0.51,<3.0.0)",
+    "psycopg2-binary (>=2.9.12,<3.0.0)",
+    "python-jose[cryptography] (>=3.5.0,<4.0.0)",
+    "passlib[bcrypt] (>=1.7.4,<2.0.0)",
+    "python-multipart (>=0.0.32,<0.0.33)"
+]
+
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[dependency-groups]
+dev = [
+    "pytest (>=9.1.1,<10.0.0)",
+    "httpx (>=0.28.1,<0.29.0)",
+    "pytest-asyncio (>=1.4.0,<2.0.0)"
+]
