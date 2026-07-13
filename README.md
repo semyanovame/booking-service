@@ -1,4 +1,3 @@
-```markdown
 # Booking Service — бронирование переговорных комнат
 
 REST API и веб-интерфейс для коворкинга. JWT, роли admin/user, PostgreSQL, Docker
@@ -9,7 +8,6 @@ REST API и веб-интерфейс для коворкинга. JWT, роли
 git clone https://github.com/semyanovame/booking-service.git
 cd booking-service
 docker-compose up -d
-```
 
 Открыть: http://localhost:8000
 
@@ -55,22 +53,3 @@ docker-compose exec app poetry run pytest
 ```
 
 16 тестов: auth, rooms, bookings, permissions
-
-## Структура
-
-```
-app/
-├── main.py
-├── config.py
-├── database.py
-├── models.py
-├── schemas.py
-├── auth.py
-├── dependencies.py
-└── routers/
-tests/
-Dockerfile
-docker-compose.yml
-pyproject.toml
-```
-```
