@@ -1,55 +1,25 @@
-# Booking Service — бронирование переговорных комнат
+# Booking Service
 
-REST API и веб-интерфейс для коворкинга. JWT, роли admin/user, PostgreSQL, Docker
+Сервис бронирования переговорных комнат
 
-## Запуск
+## Установка
 
-```bash
-git clone https://github.com/semyanovame/booking-service.git
-cd booking-service
 docker-compose up -d
 
-Открыть: http://localhost:8000
+## Вход
 
-## Пользователи
-
-| Логин | Пароль | Роль |
-|-------|--------|------|
-| admin | admin123 | Администратор |
-| user | user123 | Сотрудник |
-
-## Возможности
-
-- Вход по JWT, регистрация
-- Просмотр комнат и слотов на любую дату
-- Бронирование и отмена
-- Нельзя забронировать занятое или прошлое
-- Видно, кто занял слот
-- Админ: все брони, статистика, добавление и удаление комнат
+admin / admin123
+user / user123
 
 ## API
 
-| Метод | URL | Доступ |
-|-------|-----|--------|
-| POST | /api/login | Все |
-| POST | /api/auth/register | Все |
-| GET | /api/rooms-ui | Все |
-| POST | /api/book | Все |
-| DELETE | /api/book/{id} | Владелец / админ |
-| GET | /api/my | Все |
-| GET | /api/bookings/all | Админ |
-| POST | /api/add-room | Админ |
-| DELETE | /api/room/{id} | Админ |
-| GET | /api/stats | Админ |
-
-## Технологии
-
-Python 3.11 · FastAPI · PostgreSQL 15 · SQLAlchemy · JWT · bcrypt · Poetry · Docker
-
-## Тесты
-
-```bash
-docker-compose exec app poetry run pytest
-```
-
-16 тестов: auth, rooms, bookings, permissions
+/login
+/auth/register  
+/rooms-ui
+/book
+/book/{id}
+/my
+/bookings/all
+/add-room
+/room/{id}
+/stats
