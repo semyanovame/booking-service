@@ -81,6 +81,14 @@ async def book(request: Request):
         return {"error": "нельзя бронировать прошлое"}
     
     db = SessionLocal()
+    existing = db.query(Booking).filter(
+        Booking.slot_id == data["slot_id"],
+        Booking.date == datetime.combine(booking_date, datetime.min.time())
+    ).first()
+    if existing:
+        db.close()
+        return {"error": "слот уже занят"}
+    
     b = Booking(user_id=uid, slot_id=data["slot_id"], date=datetime.combine(booking_date, datetime.min.time()))
     db.add(b); db.commit()
     db.close()
@@ -114,6 +122,92 @@ async def my(token: str):
     db.close()
     return result
 
+@app.post("/api/add-room")
+async def add_room(request: Request):
+    data = await request.json()
+    token = request.headers.get("Authorization", "").replace("Bearer ", "")
+    try:
+        p = decode_access_token(token)
+        if p["role"] != "admin":
+            return {"error": "только админ"}
+    except:
+        return {"error": "нет доступа"}
+    
+    db = SessionLocal()
+    room = Room(name=data["name"], description=data.get("description", ""))
+    db.add(room)
+    db.flush()
+    
+    from .config import DEFAULT_SLOTS
+    for start, end in DEFAULT_SLOTS[:3]:
+        db.add(Slot(room_id=room.id, start_time=start, end_time=end))
+    
+    db.commit()
+    db.close()
+    return {"ok": True}
+@app.get("/api/stats")
+async def stats(token: str):
+    try:
+        p = decode_access_token(token)
+        if p["role"] != "admin":
+            return {"error": "только админ"}
+    except:
+        return {"error": "нет доступа"}
+    
+    from datetime import datetime, date as dt_date
+    today = dt_date.today()
+    today_dt = datetime.combine(today, datetime.min.time())
+    
+    db = SessionLocal()
+    
+    # Всего слотов во всех комнатах
+    rooms = db.query(Room).all()
+    total_slots = sum(len(room.slots) for room in rooms)
+    
+    # Занято сегодня
+    booked_today = db.query(Booking).filter(Booking.date == today_dt).count()
+    
+    # Статистика по комнатам
+    room_stats = []
+    for room in rooms:
+        slot_count = len(room.slots)
+        booked_count = db.query(Booking).filter(
+            Booking.slot_id.in_([s.id for s in room.slots]),
+            Booking.date == today_dt
+        ).count()
+        total_bookings = db.query(Booking).filter(
+            Booking.slot_id.in_([s.id for s in room.slots])
+        ).count()
+        room_stats.append({
+            "name": room.name,
+            "slots": slot_count,
+            "booked_today": booked_count,
+            "total_bookings": total_bookings
+        })
+    
+    db.close()
+    return {
+        "total_slots": total_slots,
+        "booked_today": booked_today,
+        "free_today": total_slots - booked_today,
+        "rooms": room_stats
+    }
+@app.delete("/api/room/{room_id}")
+async def delete_room(room_id: int, token: str):
+    try:
+        p = decode_access_token(token)
+        if p["role"] != "admin":
+            return {"error": "только админ"}
+    except:
+        return {"error": "нет доступа"}
+    
+    db = SessionLocal()
+    room = db.query(Room).filter(Room.id == room_id).first()
+    if room:
+        db.delete(room)
+        db.commit()
+    db.close()
+    return {"ok": True}
 
 @app.get("/", response_class=HTMLResponse)
 def index():
@@ -124,22 +218,27 @@ def index():
 body{font-family:'Inter',sans-serif;background:#F5F5F5;color:#1A1A1A;padding:30px;max-width:1200px;margin:0 auto}
 h1{font-weight:300;font-size:2em;margin-bottom:15px;color:#333}
 h1 b{font-weight:600;color:#E87461}
-.login{display:flex;gap:10px;margin-bottom:20px;max-width:500px}
-input{padding:12px 18px;border:1px solid #DDD;font-size:1em;flex:1;border-radius:4px}
-button{padding:12px 24px;background:#E87461;color:white;border:none;font-size:1em;cursor:pointer;font-weight:600;border-radius:4px}
+.login{display:flex;gap:10px;margin-bottom:8px;max-width:500px;flex-wrap:wrap}
+input{padding:12px 18px;border:1px solid #DDD;font-size:1em;flex:1;min-width:120px;border-radius:4px}
+button{padding:10px 20px;background:#E87461;color:white;border:none;font-size:0.95em;cursor:pointer;font-weight:600;border-radius:4px;white-space:nowrap}
 button:hover{opacity:0.85}
+button.ghost{background:transparent;color:#E87461;border:1px solid #E87461}
+button.ghost:hover{background:#E87461;color:white}
 .layout{display:flex;gap:24px;align-items:flex-start}
 .left{flex:1;min-width:0}
 .right{width:320px;flex-shrink:0;display:flex;flex-direction:column;gap:20px}
-.datebar{display:flex;gap:10px;align-items:center;margin-bottom:20px}
+.datebar{display:flex;gap:8px;align-items:center;margin-bottom:20px;flex-wrap:wrap}
+.datebar input{padding:10px 14px;border:1px solid #DDD;font-size:0.95em;border-radius:4px;width:160px}
 .room{background:white;padding:18px 20px;margin-bottom:14px;border-radius:8px;border:1px solid #EEE}
 .room h2{font-weight:500;font-size:1.05em;margin-bottom:10px}
 .slots{display:flex;gap:8px;flex-wrap:wrap}
-.slot{padding:8px 14px;font-size:0.85em;cursor:pointer;border-radius:20px;border:2px solid;white-space:nowrap}
+.slot{padding:8px 14px;font-size:0.85em;cursor:pointer;border-radius:20px;border:2px solid;white-space:nowrap;position:relative}
 .slot.green{background:#E8F5E9;color:#2E7D32;border-color:#A5D6A7}
 .slot.green:hover{background:#A5D6A7;color:white}
 .slot.orange{background:#FFF3E0;color:#E65100;border-color:#FFCC80}
 .slot.orange:hover{background:#FFCC80}
+.slot.red{background:#FFEBEE;color:#C62828;border-color:#EF9A9A;cursor:not-allowed}
+.slot .who{display:block;font-size:0.7em;opacity:0.8;margin-top:2px}
 .small{font-size:0.8em;color:#999}
 .panel{background:white;padding:16px 20px;border-radius:8px;border:1px solid #EEE}
 .panel h3{font-weight:500;font-size:0.95em;margin-bottom:10px;color:#333}
@@ -149,19 +248,47 @@ button:hover{opacity:0.85}
 .panel .row a{color:#E87461;text-decoration:none;font-weight:500;flex-shrink:0}
 .panel .row a:hover{text-decoration:underline}
 .msg{position:fixed;top:20px;right:20px;padding:12px 20px;border-radius:6px;color:white;z-index:99;font-weight:500}
+.reg-link{font-size:0.85em;color:#E87461;cursor:pointer;text-decoration:underline;margin-left:10px}
 </style></head><body>
 <h1>Бюро<b>.</b> <span class="small">бронирование переговорок</span></h1>
-<div class="login" id="loginBox"><input id="lu" placeholder="логин"><input type="password" id="lp" placeholder="пароль"><button onclick="login()">войти</button></div>
+<div class="login" id="loginBox">
+<input id="lu" placeholder="логин"><input type="password" id="lp" placeholder="пароль">
+<button onclick="login()">войти</button>
+<span class="reg-link" onclick="showReg()">регистрация</span>
+</div>
+<div class="login" id="regBox" style="display:none">
+<input id="ru" placeholder="логин"><input type="password" id="rp" placeholder="пароль">
+<button onclick="register()">создать</button>
+<span class="reg-link" onclick="showLogin()">войти</span>
+</div>
 <div id="app" style="display:none">
 <p style="margin-bottom:12px"><b id="un"></b> · <span class="small" id="urole"></span> · <a href="#" onclick="logout()" style="color:#E87461">выйти</a></p>
 <div class="layout">
 <div class="left">
-<div class="datebar"><input type="date" id="dp"><button onclick="load()">показать</button></div>
+<div class="datebar">
+<button onclick="shiftDate(-1)">← Вчера</button>
+<input type="date" id="dp">
+<button onclick="shiftDate(1)">Завтра →</button>
+<button class="ghost" onclick="todayDate()">Сегодня</button>
+</div>
 <div id="roomsBox"></div>
 </div>
 <div class="right">
 <div class="panel"><h3>Мои бронирования</h3><div id="myBox"><span class="small">пусто</span></div></div>
-<div class="panel" id="adminPanel" style="display:none"><h3>Все бронирования (админ)</h3><div id="allBox"><span class="small">пусто</span></div></div>
+<div class="panel" id="adminPanel" style="display:none">
+<h3>Все бронирования (админ)</h3>
+<div id="allBox"><span class="small">пусто</span></div>
+<button style="margin-top:10px;width:100%" onclick="showAddRoom()">Добавить комнату</button>
+<div id="addRoomForm" style="display:none;margin-top:10px">
+<input id="roomName" placeholder="Название" style="width:100%;margin-bottom:6px">
+<input id="roomDesc" placeholder="Описание" style="width:100%;margin-bottom:6px">
+<button onclick="addRoom()" style="width:100%">Создать</button>
+</div>
+<div style="margin-top:12px;padding-top:12px;border-top:1px solid #EEE">
+<h3 style="margin-bottom:8px">Статистика на сегодня</h3>
+<div id="statsBox"><span class="small">загрузка...</span></div>
+</div>
+</div>
 </div>
 </div>
 </div>
@@ -170,14 +297,23 @@ var T=localStorage.getItem('bt')||'',U=null;if(T)chk();
 var today=new Date().toISOString().split('T')[0];
 document.getElementById('dp').value=today;
 function msg(m,t){var e=document.createElement('div');e.className='msg';e.style.background=t==='err'?'#E87461':'#333';e.textContent=m;document.body.appendChild(e);setTimeout(function(){e.remove()},2000)}
-async function login(){var u=lu.value,p=lp.value;try{var r=await fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:u,password:p})});var d=await r.json();if(d.error){msg('неверно','err');return}T=d.token;U={username:d.username,role:d.role};localStorage.setItem('bt',T);upd();load()}catch(e){}}
+function showReg(){document.getElementById('loginBox').style.display='none';document.getElementById('regBox').style.display='flex'}
+function showLogin(){document.getElementById('regBox').style.display='none';document.getElementById('loginBox').style.display='flex'}
+async function register(){var u=document.getElementById('ru').value,p=document.getElementById('rp').value;try{var r=await fetch('/api/auth/register?username='+encodeURIComponent(u)+'&password='+encodeURIComponent(p),{method:'POST'});if(r.ok){msg('Готово. Войдите');showLogin()}else{var d=await r.json();msg(d.detail||'Ошибка','err')}}catch(e){msg('Ошибка','err')}}
+async function login(){var u=lu.value,p=lp.value;try{var r=await fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:u,password:p})});var d=await r.json();if(d.error){msg('Неверный пароль','err');return}T=d.token;U={username:d.username,role:d.role};localStorage.setItem('bt',T);upd();load()}catch(e){}}
 function logout(){T='';U=null;localStorage.removeItem('bt');upd();load()}
-async function chk(){try{var r=await fetch('/api/me?token='+T);if(r.ok){U=await r.json();upd()}else{T='';localStorage.removeItem('bt')}}catch(e){}}
-function upd(){if(U){loginBox.style.display='none';app.style.display='block';un.textContent=U.username;urole.textContent=U.role==='admin'?'админ':'сотрудник';if(U.role==='admin'){loadAll()}else{document.getElementById('adminPanel').style.display='none'}}else{loginBox.style.display='flex';app.style.display='none';document.getElementById('adminPanel').style.display='none'}}
-async function load(){var dt=document.getElementById('dp').value||today;var c=document.getElementById('roomsBox');try{var my=[];if(T){var mr=await fetch('/api/my?token='+T);if(mr.ok)my=await mr.json()}var rooms=await(await fetch('/api/rooms-ui')).json();var ms={};my.forEach(function(b){if(b.date===dt)ms[b.slot_id]=b.id});c.innerHTML=rooms.map(function(r){return'<div class="room"><h2>'+r.name+'</h2><div class="slots">'+r.slots.map(function(s){var cls='green',txt='',cl='book('+s.id+')';if(ms[s.id]){cls='orange';txt='';cl='cancel('+ms[s.id]+')'}return'<div class="slot '+cls+'" onclick="'+cl+'" title="'+txt+'">'+s.time+'</div>'}).join('')+'</div></div>'}).join('');myLoad(my)}catch(e){}}
+async function chk(){try{var r=await fetch('/api/me?token='+T);if(r.ok){U=await r.json();upd()}else{msg('Сессия истекла. Войдите заново','err');logout()}}catch(e){}}
+function upd(){if(U){loginBox.style.display='none';regBox.style.display='none';app.style.display='block';un.textContent=U.username;urole.textContent=U.role==='admin'?'админ':'сотрудник';if(U.role==='admin'){loadAll();loadStats()}else{document.getElementById('adminPanel').style.display='none'}}else{loginBox.style.display='flex';regBox.style.display='none';app.style.display='none';document.getElementById('adminPanel').style.display='none'}}
+function shiftDate(d){var dt=new Date(document.getElementById('dp').value);dt.setDate(dt.getDate()+d);document.getElementById('dp').value=dt.toISOString().split('T')[0];load()}
+function todayDate(){document.getElementById('dp').value=today;load()}
+async function load(){if(!T)return;var dt=document.getElementById('dp').value||today;var c=document.getElementById('roomsBox');try{var my=[];if(T){var mr=await fetch('/api/my?token='+T);if(mr.ok)my=await mr.json()}var rooms=await(await fetch('/api/rooms-ui')).json();var allBookings=[];if(U&&U.role==='admin'){var ab=await fetch('/api/bookings/all',{headers:{'Authorization':'Bearer '+T}});if(ab.ok)allBookings=await ab.json()}var ms={};my.forEach(function(b){if(b.date===dt)ms[b.slot_id]=b.id});var bookedBy={};allBookings.forEach(function(b){if(b.date===dt)bookedBy[b.slot_id]=b.username||('Польз. '+b.user_id)});c.innerHTML=rooms.map(function(r){return'<div class="room"><h2>'+r.name+(U&&U.role==='admin'?' <a href="#" onclick="deleteRoom('+r.id+')" style="color:#E87461;font-size:0.8em">удалить</a>':'')+'</h2><div class="slots">'+r.slots.map(function(s){var cls='green',who='',cl='book('+s.id+')';if(ms[s.id]){cls='orange';who='Я';cl='cancel('+ms[s.id]+')'}else if(bookedBy[s.id]){cls='red';who=bookedBy[s.id]}return'<div class="slot '+cls+'"'+(cl?' onclick="'+cl+'"':'')+'>'+s.time+(who?'<span class="who">'+who+'</span>':'')+'</div>'}).join('')+'</div></div>'}).join('');myLoad(my)}catch(e){}}
 function myLoad(my){var c=document.getElementById('myBox');if(!T){c.innerHTML='<span class="small">войдите</span>';return}if(!my||!my.length){c.innerHTML='<span class="small">пусто</span>';return}c.innerHTML=my.map(function(b){var n='Слот '+b.slot_id;if(b.room)n=b.room;return'<div class="row"><span title="'+n+'">'+n+' · '+b.date+'</span><a href="#" onclick="cancel('+b.id+')">отменить</a></div>'}).join('')}
-async function book(sid){if(!T){msg('войдите','err');return}var dt=document.getElementById('dp').value||today;try{var r=await fetch('/api/book',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({slot_id:sid,date:dt,token:T})});var d=await r.json();if(d.ok){msg('готово');load()}else{msg(d.error||'ошибка','err')}}catch(e){msg('ошибка сети','err')}}
-async function cancel(id){try{var r=await fetch('/api/book/'+id+'?token='+T,{method:'DELETE'});if(r.ok){msg('отменено');load();if(U&&U.role==='admin')loadAll()}else{msg('ошибка','err')}}catch(e){}}
+async function book(sid){if(!T){msg('Сессия истекла','err');logout();return}var dt=document.getElementById('dp').value||today;try{var r=await fetch('/api/book',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({slot_id:sid,date:dt,token:T})});var d=await r.json();if(d.ok){msg('Забронировано');load()}else{msg(d.error||'Ошибка','err')}}catch(e){msg('Ошибка сети','err')}}
+async function cancel(id){if(!T){msg('Сессия истекла','err');logout();return}try{var r=await fetch('/api/book/'+id+'?token='+T,{method:'DELETE'});if(r.ok){msg('Отменено');load();if(U&&U.role==='admin'){loadAll();loadStats()}}else{msg('Ошибка','err')}}catch(e){}}
+async function deleteRoom(id){if(!confirm('Удалить комнату и все её брони?'))return;try{var r=await fetch('/api/room/'+id+'?token='+T,{method:'DELETE'});if(r.ok){msg('Комната удалена');load();loadAll();loadStats()}else{msg('Ошибка','err')}}catch(e){msg('Ошибка','err')}}
 async function loadAll(){if(!U||U.role!=='admin')return;document.getElementById('adminPanel').style.display='block';var r=await fetch('/api/bookings/all',{headers:{'Authorization':'Bearer '+T}});if(!r.ok)return;var data=await r.json();var c=document.getElementById('allBox');if(!data.length){c.innerHTML='<span class="small">пусто</span>';return}c.innerHTML=data.map(function(b){var n='Слот '+b.slot_id;if(b.room_name)n=b.room_name;var uname=b.username||'Польз. '+b.user_id;return'<div class="row"><span title="'+uname+'">'+uname+' · '+n+' · '+b.date+'</span><a href="#" onclick="cancel('+b.id+')">отменить</a></div>'}).join('')}
+async function loadStats(){if(!U||U.role!=='admin')return;var r=await fetch('/api/stats?token='+T);if(!r.ok)return;var d=await r.json();document.getElementById('statsBox').innerHTML='<span>Занято: <b>'+d.booked_today+'</b> из <b>'+d.total_slots+'</b> ('+d.free_today+' свободно)</span><br>'+d.rooms.map(function(r){return'<span>'+r.name+': <b>'+r.booked_today+'</b> сегодня (всего '+r.total_bookings+')</span>'}).join('<br>')}
+function showAddRoom(){var f=document.getElementById('addRoomForm');f.style.display=f.style.display==='none'?'block':'none'}
+async function addRoom(){if(!T){msg('Сессия истекла','err');logout();return}var n=document.getElementById('roomName').value;var d=document.getElementById('roomDesc').value;if(!n){msg('Введите название','err');return}try{var r=await fetch('/api/add-room',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+T},body:JSON.stringify({name:n,description:d})});if(r.ok){msg('Комната создана');load();loadStats();document.getElementById('addRoomForm').style.display='none'}else{msg('Ошибка','err')}}catch(e){msg('Ошибка','err')}}
 upd();if(T)load();
 </script></body></html>"""
